@@ -321,10 +321,15 @@ jobs:
           ln -sf /builder/build /home/runner/work/_actions/ophub/amlogic-s9xxx-armbian/main/build
           echo "status=success" >> ${GITHUB_OUTPUT}
       - name: 🔧 Inject TSPi Drivers (Screen + Touch)
+        working-directory: /builder
+        if: ${{ steps.down.outputs.status }} == 'success' && !cancelled()
         run: |
-          # 定义补丁目录 (针对 RK3566 6.1.x 内核)
-          PATCH_DIR="build-armbian/userpatches/kernel/rockchip64-current"
+          # 注意：根据你的工作流，目录名是 build 而不是 build-armbian
+          # 针对 RK3566 6.1.x 内核 (rockchip64-current)
+          PATCH_DIR="build/userpatches/kernel/rockchip64-current"
           mkdir -p $PATCH_DIR
+
+          echo "正在注入驱动补丁到: $PATCH_DIR"
 
           # =======================================================
           # 1. 生成屏幕驱动源码 (JD9365DA-H3)
@@ -540,7 +545,7 @@ jobs:
           echo "CONFIG_TOUCHSCREEN_GOODIX=y" >> $PATCH_DIR/board-tspi.config
           
           # 打印一下目录内容确认注入成功
-          ls -R build-armbian/userpatches/
+          ls -R build/userpatches/
 
       - name: Compile Armbian [ ${{ inputs.set_release }} ]
         id: compile
