@@ -1,5 +1,5 @@
 #==========================================================================
-# Description: Build Armbian arm64 server image (Fixed for Fork & TSPi)
+# Description: Build Armbian arm64 server image (Final Fix for Artifacts)
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
@@ -91,7 +91,6 @@ jobs:
           df -hT ${PWD}
           git clone -q --single-branch --depth=1 --branch=main https://github.com/armbian/build.git build
           ln -sf /builder/build ${{ github.workspace }}/build
-          # 🔴 已删除报错的 ln -sf ... ophub ... 行
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: 🔧 Inject TSPi Drivers (Screen + Touch)
@@ -364,12 +363,11 @@ jobs:
           echo "build_tag=Armbian_${{ inputs.set_release }}_arm64_${{ inputs.armbian_edition }}_$(date +"%Y.%m")" >> ${GITHUB_ENV}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Upload Armbian image to Release
-        uses: ncipollo/release-action@main
+      - name: 📤 Upload Image to Artifacts
+        uses: actions/upload-artifact@v4
         if: ${{ steps.clean.outputs.status }} == 'success' && !cancelled()
         with:
-          tag: ${{ env.build_tag }}
-          artifacts: build/output/images/*
-          allowUpdates: true
-          makeLatest: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Armbian-RK3566-TSPi
+          path: build/output/images/*.img*
+          if-no-files-found: warn
+          retention-days: 3
