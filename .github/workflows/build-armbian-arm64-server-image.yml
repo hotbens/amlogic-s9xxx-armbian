@@ -1,5 +1,5 @@
 #==========================================================================
-# Description: Build Armbian arm64 server image (Modified for TSPi RK3566)
+# Description: Build Armbian arm64 server image (Fixed for Fork & TSPi)
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
@@ -91,7 +91,7 @@ jobs:
           df -hT ${PWD}
           git clone -q --single-branch --depth=1 --branch=main https://github.com/armbian/build.git build
           ln -sf /builder/build ${{ github.workspace }}/build
-          ln -sf /builder/build /home/runner/work/_actions/ophub/amlogic-s9xxx-armbian/main/build
+          # 🔴 已删除报错的 ln -sf ... ophub ... 行
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: 🔧 Inject TSPi Drivers (Screen + Touch)
