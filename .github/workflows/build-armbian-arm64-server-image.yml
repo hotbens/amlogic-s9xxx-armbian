@@ -324,8 +324,14 @@ jobs:
         working-directory: /builder
         if: ${{ steps.down.outputs.status }} == 'success' && !cancelled()
         run: |
-          # 注意：根据你的工作流，目录名是 build 而不是 build-armbian
-          # 针对 RK3566 6.1.x 内核 (rockchip64-current)
+          # =======================================================
+          # 0. 修复目录结构 (解决 Extension search Directory 报错)
+          # =======================================================
+          # 编译脚本需要这些目录存在，即使是空的
+          mkdir -p build/userpatches/extensions
+          mkdir -p build/userpatches/overlay
+          
+          # 定义补丁目录 (针对 RK3566 6.1.x 内核)
           PATCH_DIR="build/userpatches/kernel/rockchip64-current"
           mkdir -p $PATCH_DIR
 
@@ -546,6 +552,7 @@ jobs:
           
           # 打印一下目录内容确认注入成功
           ls -R build/userpatches/
+
 
       - name: Compile Armbian [ ${{ inputs.set_release }} ]
         id: compile
