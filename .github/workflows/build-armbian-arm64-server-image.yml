@@ -1,5 +1,5 @@
 #==========================================================================
-# Description: Build Armbian arm64 server image (Printf Version - No EOF Errors)
+# Description: Build Armbian arm64 server image (Echo Grouping Version)
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
@@ -110,283 +110,281 @@ jobs:
           # =======================================================
           # 1. 生成屏幕驱动源码文件 (panel-jd9365da-h3.c)
           # =======================================================
-          # 使用 curl 从外部下载，或者用 base64 解码，或者用 printf 生成
-          # 这里为了方便，我们用 printf 生成核心代码
-          
-          cat > panel-jd9365da-h3.c <<'CODE_END'
-          // SPDX-License-Identifier: GPL-2.0
-          #include <linux/delay.h>
-          #include <linux/gpio/consumer.h>
-          #include <linux/module.h>
-          #include <linux/of.h>
-          #include <linux/regulator/consumer.h>
-          #include <drm/drm_mipi_dsi.h>
-          #include <drm/drm_modes.h>
-          #include <drm/drm_panel.h>
-
-          struct jd9365da_panel {
-          	struct drm_panel panel;
-          	struct mipi_dsi_device *dsi;
-          	struct gpio_desc *reset_gpio;
-          };
-
-          static inline struct jd9365da_panel *to_jd9365da_panel(struct drm_panel *panel) {
-          	return container_of(panel, struct jd9365da_panel, panel);
-          }
-
-          static int jd9365da_init_sequence(struct mipi_dsi_device *dsi) {
-          	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x00}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE1, (u8[]){0x93}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE2, (u8[]){0x65}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE3, (u8[]){0xF8}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x80, (u8[]){0x03}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x01}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x00, (u8[]){0x00}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x01, (u8[]){0x3B}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x0C, (u8[]){0x74}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x04}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x00, (u8[]){0x0E}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x02, (u8[]){0xB3}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x09, (u8[]){0x61}, 1);
-          	mipi_dsi_dcs_write(dsi, 0x0E, (u8[]){0x48}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x00}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE6, (u8[]){0x02}, 1);
-          	mipi_dsi_dcs_write(dsi, 0xE7, (u8[]){0x0C}, 1);
-          	return 0;
-          }
-
-          static int jd9365da_prepare(struct drm_panel *panel) {
-          	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);
-          	gpiod_set_value(ctx->reset_gpio, 1);
-          	msleep(10);
-          	gpiod_set_value(ctx->reset_gpio, 0);
-          	msleep(20);
-          	gpiod_set_value(ctx->reset_gpio, 1);
-          	msleep(120);
-          	jd9365da_init_sequence(ctx->dsi);
-          	return mipi_dsi_dcs_exit_sleep_mode(ctx->dsi);
-          }
-
-          static int jd9365da_enable(struct drm_panel *panel) {
-          	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);
-          	msleep(120);
-          	return mipi_dsi_dcs_set_display_on(ctx->dsi);
-          }
-
-          static int jd9365da_disable(struct drm_panel *panel) {
-          	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);
-          	return mipi_dsi_dcs_set_display_off(ctx->dsi);
-          }
-
-          static const struct drm_display_mode jd9365da_mode = {
-          	.clock = 72000,
-          	.hdisplay = 800,
-          	.hsync_start = 800 + 40,
-          	.hsync_end = 800 + 40 + 20,
-          	.htotal = 800 + 40 + 20 + 20,
-          	.vdisplay = 1280,
-          	.vsync_start = 1280 + 20,
-          	.vsync_end = 1280 + 20 + 4,
-          	.vtotal = 1280 + 20 + 4 + 20,
-          	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
-          };
-
-          static int jd9365da_get_modes(struct drm_panel *panel, struct drm_connector *connector) {
-          	struct drm_display_mode *mode = drm_mode_duplicate(connector->dev, &jd9365da_mode);
-          	if (!mode) return -ENOMEM;
-          	drm_mode_set_name(mode);
-          	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
-          	drm_mode_probed_add(connector, mode);
-          	return 1;
-          }
-
-          static const struct drm_panel_funcs jd9365da_funcs = {
-          	.prepare = jd9365da_prepare,
-          	.enable = jd9365da_enable,
-          	.disable = jd9365da_disable,
-          	.get_modes = jd9365da_get_modes,
-          };
-
-          static int jd9365da_dsi_probe(struct mipi_dsi_device *dsi) {
-          	struct jd9365da_panel *ctx = devm_kzalloc(&dsi->dev, sizeof(*ctx), GFP_KERNEL);
-          	if (!ctx) return -ENOMEM;
-          	mipi_dsi_set_drvdata(dsi, ctx);
-          	ctx->dsi = dsi;
-          	ctx->reset_gpio = devm_gpiod_get(&dsi->dev, "reset", GPIOD_OUT_LOW);
-          	if (IS_ERR(ctx->reset_gpio)) return dev_err_probe(&dsi->dev, PTR_ERR(ctx->reset_gpio), "No reset GPIO\n");
-          	drm_panel_init(&ctx->panel, &dsi->dev, &jd9365da_funcs, DRM_MODE_CONNECTOR_DSI);
-          	drm_panel_add(&ctx->panel);
-          	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
-          	dsi->format = MIPI_DSI_FMT_RGB888;
-          	dsi->lanes = 4;
-          	return mipi_dsi_attach(dsi);
-          }
-
-          static void jd9365da_dsi_remove(struct mipi_dsi_device *dsi) {
-          	struct jd9365da_panel *ctx = mipi_dsi_get_drvdata(dsi);
-          	mipi_dsi_detach(dsi);
-          	drm_panel_remove(&ctx->panel);
-          }
-
-          static const struct of_device_id jd9365da_of_match[] = { { .compatible = "qy,qy101003a0-00", }, { } };
-          MODULE_DEVICE_TABLE(of, jd9365da_of_match);
-          static struct mipi_dsi_driver jd9365da_driver = {
-          	.probe = jd9365da_dsi_probe,
-          	.remove = jd9365da_dsi_remove,
-          	.driver = { .name = "panel-jd9365da-h3", .of_match_table = jd9365da_of_match, },
-          };
-          module_mipi_dsi_driver(jd9365da_driver);
-          MODULE_LICENSE("GPL");
-          CODE_END
+          # 使用括号 echo 组合写入，避免 EOF 缩进错误
+          (
+          echo '// SPDX-License-Identifier: GPL-2.0'
+          echo '#include <linux/delay.h>'
+          echo '#include <linux/gpio/consumer.h>'
+          echo '#include <linux/module.h>'
+          echo '#include <linux/of.h>'
+          echo '#include <linux/regulator/consumer.h>'
+          echo '#include <drm/drm_mipi_dsi.h>'
+          echo '#include <drm/drm_modes.h>'
+          echo '#include <drm/drm_panel.h>'
+          echo ''
+          echo 'struct jd9365da_panel {'
+          echo '	struct drm_panel panel;'
+          echo '	struct mipi_dsi_device *dsi;'
+          echo '	struct gpio_desc *reset_gpio;'
+          echo '};'
+          echo ''
+          echo 'static inline struct jd9365da_panel *to_jd9365da_panel(struct drm_panel *panel) {'
+          echo '	return container_of(panel, struct jd9365da_panel, panel);'
+          echo '}'
+          echo ''
+          echo 'static int jd9365da_init_sequence(struct mipi_dsi_device *dsi) {'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x00}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE1, (u8[]){0x93}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE2, (u8[]){0x65}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE3, (u8[]){0xF8}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x80, (u8[]){0x03}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x01}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x00, (u8[]){0x00}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x01, (u8[]){0x3B}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x0C, (u8[]){0x74}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x04}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x00, (u8[]){0x0E}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x02, (u8[]){0xB3}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x09, (u8[]){0x61}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0x0E, (u8[]){0x48}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE0, (u8[]){0x00}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE6, (u8[]){0x02}, 1);'
+          echo '	mipi_dsi_dcs_write(dsi, 0xE7, (u8[]){0x0C}, 1);'
+          echo '	return 0;'
+          echo '}'
+          echo ''
+          echo 'static int jd9365da_prepare(struct drm_panel *panel) {'
+          echo '	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);'
+          echo '	gpiod_set_value(ctx->reset_gpio, 1);'
+          echo '	msleep(10);'
+          echo '	gpiod_set_value(ctx->reset_gpio, 0);'
+          echo '	msleep(20);'
+          echo '	gpiod_set_value(ctx->reset_gpio, 1);'
+          echo '	msleep(120);'
+          echo '	jd9365da_init_sequence(ctx->dsi);'
+          echo '	return mipi_dsi_dcs_exit_sleep_mode(ctx->dsi);'
+          echo '}'
+          echo ''
+          echo 'static int jd9365da_enable(struct drm_panel *panel) {'
+          echo '	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);'
+          echo '	msleep(120);'
+          echo '	return mipi_dsi_dcs_set_display_on(ctx->dsi);'
+          echo '}'
+          echo ''
+          echo 'static int jd9365da_disable(struct drm_panel *panel) {'
+          echo '	struct jd9365da_panel *ctx = to_jd9365da_panel(panel);'
+          echo '	return mipi_dsi_dcs_set_display_off(ctx->dsi);'
+          echo '}'
+          echo ''
+          echo 'static const struct drm_display_mode jd9365da_mode = {'
+          echo '	.clock = 72000,'
+          echo '	.hdisplay = 800,'
+          echo '	.hsync_start = 800 + 40,'
+          echo '	.hsync_end = 800 + 40 + 20,'
+          echo '	.htotal = 800 + 40 + 20 + 20,'
+          echo '	.vdisplay = 1280,'
+          echo '	.vsync_start = 1280 + 20,'
+          echo '	.vsync_end = 1280 + 20 + 4,'
+          echo '	.vtotal = 1280 + 20 + 4 + 20,'
+          echo '	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,'
+          echo '};'
+          echo ''
+          echo 'static int jd9365da_get_modes(struct drm_panel *panel, struct drm_connector *connector) {'
+          echo '	struct drm_display_mode *mode = drm_mode_duplicate(connector->dev, &jd9365da_mode);'
+          echo '	if (!mode) return -ENOMEM;'
+          echo '	drm_mode_set_name(mode);'
+          echo '	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;'
+          echo '	drm_mode_probed_add(connector, mode);'
+          echo '	return 1;'
+          echo '}'
+          echo ''
+          echo 'static const struct drm_panel_funcs jd9365da_funcs = {'
+          echo '	.prepare = jd9365da_prepare,'
+          echo '	.enable = jd9365da_enable,'
+          echo '	.disable = jd9365da_disable,'
+          echo '	.get_modes = jd9365da_get_modes,'
+          echo '};'
+          echo ''
+          echo 'static int jd9365da_dsi_probe(struct mipi_dsi_device *dsi) {'
+          echo '	struct jd9365da_panel *ctx = devm_kzalloc(&dsi->dev, sizeof(*ctx), GFP_KERNEL);'
+          echo '	if (!ctx) return -ENOMEM;'
+          echo '	mipi_dsi_set_drvdata(dsi, ctx);'
+          echo '	ctx->dsi = dsi;'
+          echo '	ctx->reset_gpio = devm_gpiod_get(&dsi->dev, "reset", GPIOD_OUT_LOW);'
+          echo '	if (IS_ERR(ctx->reset_gpio)) return dev_err_probe(&dsi->dev, PTR_ERR(ctx->reset_gpio), "No reset GPIO\n");'
+          echo '	drm_panel_init(&ctx->panel, &dsi->dev, &jd9365da_funcs, DRM_MODE_CONNECTOR_DSI);'
+          echo '	drm_panel_add(&ctx->panel);'
+          echo '	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;'
+          echo '	dsi->format = MIPI_DSI_FMT_RGB888;'
+          echo '	dsi->lanes = 4;'
+          echo '	return mipi_dsi_attach(dsi);'
+          echo '}'
+          echo ''
+          echo 'static void jd9365da_dsi_remove(struct mipi_dsi_device *dsi) {'
+          echo '	struct jd9365da_panel *ctx = mipi_dsi_get_drvdata(dsi);'
+          echo '	mipi_dsi_detach(dsi);'
+          echo '	drm_panel_remove(&ctx->panel);'
+          echo '}'
+          echo ''
+          echo 'static const struct of_device_id jd9365da_of_match[] = { { .compatible = "qy,qy101003a0-00", }, { } };'
+          echo 'MODULE_DEVICE_TABLE(of, jd9365da_of_match);'
+          echo 'static struct mipi_dsi_driver jd9365da_driver = {'
+          echo '	.probe = jd9365da_dsi_probe,'
+          echo '	.remove = jd9365da_dsi_remove,'
+          echo '	.driver = { .name = "panel-jd9365da-h3", .of_match_table = jd9365da_of_match, },'
+          echo '};'
+          echo 'module_mipi_dsi_driver(jd9365da_driver);'
+          echo 'MODULE_LICENSE("GPL");'
+          ) > panel-jd9365da-h3.c
 
           # =======================================================
           # 2. 生成内核源码补丁 (Kconfig + Makefile + .c)
           # =======================================================
-          cat > $PATCH_DIR/001-add-jd9365da-driver.patch <<'PATCH_END'
-          diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
-          index 1234567..89abcdef 100644
-          --- a/drivers/gpu/drm/panel/Kconfig
-          +++ b/drivers/gpu/drm/panel/Kconfig
-          @@ -450,3 +450,10 @@ config DRM_PANEL_JDI_LT070ME05000
-          +config DRM_PANEL_JD9365DA_H3
-          +	tristate "QY101003A0-00 JD9365DA-H3 panel"
-          +	depends on OF && DRM_MIPI_DSI
-          +	depends on BACKLIGHT_CLASS_DEVICE
-          +	help
-          +	  Support for QY101003A0-00 10.1 inch 800x1280 DSI panel.
-          +
-           diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
-           index 1234567..89abcdef 100644
-           --- a/drivers/gpu/drm/panel/Makefile
-           +++ b/drivers/gpu/drm/panel/Makefile
-           @@ -45,3 +45,4 @@ obj-$(CONFIG_DRM_PANEL_JDI_LT070ME05000) += panel-jdi-lt070me05000.o
-           +obj-$(CONFIG_DRM_PANEL_JD9365DA_H3) += panel-jd9365da-h3.o
-           diff --git a/drivers/gpu/drm/panel/panel-jd9365da-h3.c b/drivers/gpu/drm/panel/panel-jd9365da-h3.c
-           new file mode 100644
-           index 0000000..1234567
-           --- /dev/null
-           +++ b/drivers/gpu/drm/panel/panel-jd9365da-h3.c
-           @@ -0,0 +1,130 @@
-          PATCH_END
+          (
+          echo 'diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig'
+          echo 'index 1234567..89abcdef 100644'
+          echo '--- a/drivers/gpu/drm/panel/Kconfig'
+          echo '+++ b/drivers/gpu/drm/panel/Kconfig'
+          echo '@@ -450,3 +450,10 @@ config DRM_PANEL_JDI_LT070ME05000'
+          echo '+config DRM_PANEL_JD9365DA_H3'
+          echo '+	tristate "QY101003A0-00 JD9365DA-H3 panel"'
+          echo '+	depends on OF && DRM_MIPI_DSI'
+          echo '+	depends on BACKLIGHT_CLASS_DEVICE'
+          echo '+	help'
+          echo '+	  Support for QY101003A0-00 10.1 inch 800x1280 DSI panel.'
+          echo '+'
+          echo ' diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile'
+          echo ' index 1234567..89abcdef 100644'
+          echo ' --- a/drivers/gpu/drm/panel/Makefile'
+          echo ' +++ b/drivers/gpu/drm/panel/Makefile'
+          echo ' @@ -45,3 +45,4 @@ obj-$(CONFIG_DRM_PANEL_JDI_LT070ME05000) += panel-jdi-lt070me05000.o'
+          echo ' +obj-$(CONFIG_DRM_PANEL_JD9365DA_H3) += panel-jd9365da-h3.o'
+          echo ' diff --git a/drivers/gpu/drm/panel/panel-jd9365da-h3.c b/drivers/gpu/drm/panel/panel-jd9365da-h3.c'
+          echo ' new file mode 100644'
+          echo ' index 0000000..1234567'
+          echo ' --- /dev/null'
+          echo ' +++ b/drivers/gpu/drm/panel/panel-jd9365da-h3.c'
+          echo ' @@ -0,0 +1,130 @@'
+          ) > $PATCH_DIR/001-add-jd9365da-driver.patch
            
-           cat panel-jd9365da-h3.c >> $PATCH_DIR/001-add-jd9365da-driver.patch
+          cat panel-jd9365da-h3.c >> $PATCH_DIR/001-add-jd9365da-driver.patch
 
           # =======================================================
           # 3. 生成设备树补丁 (DTS) - 全功能修复版
           # =======================================================
-          cat > $PATCH_DIR/002-rk3566-tspi-fixes.patch <<'DTS_END'
-          diff --git a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
-          index xxxxx..xxxxx 100644
-          --- a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
-          +++ b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
-          @@ -20,6 +20,14 @@
-           		stdout-path = "serial2:1500000n8";
-           	};
-           
-          +	/* 修复1：定义虚拟背光 (解决黑屏) */
-          +	panel_backlight: panel-backlight {
-          +		compatible = "regulator-fixed";
-          +		regulator-name = "panel-backlight";
-          +		regulator-min-microvolt = <3300000>;
-          +		regulator-max-microvolt = <3300000>;
-          +		gpio = <&gpio3 RK_PA2 GPIO_ACTIVE_HIGH>;
-          +		enable-active-high;
-          +		regulator-always-on;
-          +		regulator-boot-on;
-          +	};
-          +
-           	vcc12v_dcin: vcc12v-dcin {
-           		compatible = "regulator-fixed";
-           		regulator-name = "vcc12v_dcin";
-          @@ -100,6 +108,90 @@
-           	status = "okay";
-           };
-           
-          +/* ========================================== */
-          +/* 修复2：以太网配置 (GPIO0_C4 复位)          */
-          +/* ========================================== */
-          +&gmac1 {
-          +	status = "okay";
-          +	tx_delay = <0x4f>;
-          +	rx_delay = <0x26>;
-          +	snps,reset-gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_LOW>;
-          +	snps,reset-active-low;
-          +	snps,reset-delays-us = <0 20000 100000>;
-          +};
-          +
-          +/* ========================================== */
-          +/* 修复3：MIPI 屏幕配置 (JD9365DA-H3)         */
-          +/* ========================================== */
-          +&dsi0 {
-          +	status = "okay";
-          +	#address-cells = <1>;
-          +	#size-cells = <0>;
-          +
-          +	panel@0 {
-          +		compatible = "qy,qy101003a0-00";
-          +		reg = <0>;
-          +		reset-gpios = <&gpio3 RK_PC1 GPIO_ACTIVE_LOW>;
-          +		power-supply = <&vcc3v3_sys>;
-          +		backlight = <&panel_backlight>;
-          +	};
-          +};
-          +
-          +&dsi0_in_vp0 {
-          +	status = "okay";
-          +};
-          +
-          +/* ========================================== */
-          +/* 修复4：GT911 触摸配置 (I2C1)               */
-          +/* ========================================== */
-          +&i2c1 {
-          +	status = "okay";
-          +	clock-frequency = <400000>;
-          +	
-          +	touchscreen@5d {
-          +		compatible = "goodix,gt911";
-          +		reg = <0x5d>;
-          +		interrupt-parent = <&gpio1>;
-          +		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_LOW>;
-          +		reset-gpios = <&gpio1 RK_PA1 GPIO_ACTIVE_LOW>;
-          +		irq-gpios = <&gpio1 RK_PA0 GPIO_ACTIVE_HIGH>;
-          +	};
-          +};
-          +
-          +/* ========================================== */
-          +/* 修复5：AP6212 WiFi (SDIO)                  */
-          +/* ========================================== */
-          +&sdmmc1 {
-          +	max-frequency = <150000000>;
-          +	supports-sdio;
-          +	bus-width = <4>;
-          +	disable-wp;
-          +	cap-sd-highspeed;
-          +	cap-sdio-irq;
-          +	keep-power-in-suspend;
-          +	mmc-pwrseq = <&sdio_pwrseq>;
-          +	non-removable;
-          +	pinctrl-names = "default";
-          +	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_cmd &sdmmc1_clk>;
-          +	status = "okay";
-          +
-          +	brcmf: wifi@1 {
-          +		compatible = "brcm,bcm4329-fmac";
-          +		reg = <1>;
-          +		interrupt-parent = <&gpio0>;
-          +		interrupts = <RK_PB5 IRQ_TYPE_LEVEL_HIGH>;
-          +		interrupt-names = "host-wake";
-          +	};
-          +};
-          +
-          +/* ========================================== */
-          +/* 修复6：AP6212 蓝牙 (UART1)                 */
-          +/* ========================================== */
-          +&uart1 {
-          +	status = "okay";
-          +	pinctrl-names = "default";
-          +	pinctrl-0 = <&uart1m0_xfer &uart1m0_ctsn &uart1m0_rtsn>;
-          +};
-          +DTS_END
+          (
+          echo 'diff --git a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts'
+          echo 'index xxxxx..xxxxx 100644'
+          echo '--- a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts'
+          echo '+++ b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts'
+          echo '@@ -20,6 +20,14 @@'
+          echo ' 		stdout-path = "serial2:1500000n8";'
+          echo ' 	};'
+          echo ' '
+          echo '+	/* 修复1：定义虚拟背光 (解决黑屏) */'
+          echo '+	panel_backlight: panel-backlight {'
+          echo '+		compatible = "regulator-fixed";'
+          echo '+		regulator-name = "panel-backlight";'
+          echo '+		regulator-min-microvolt = <3300000>;'
+          echo '+		regulator-max-microvolt = <3300000>;'
+          echo '+		gpio = <&gpio3 RK_PA2 GPIO_ACTIVE_HIGH>;'
+          echo '+		enable-active-high;'
+          echo '+		regulator-always-on;'
+          echo '+		regulator-boot-on;'
+          echo '+	};'
+          echo '+'
+          echo ' 	vcc12v_dcin: vcc12v-dcin {'
+          echo ' 		compatible = "regulator-fixed";'
+          echo ' 		regulator-name = "vcc12v_dcin";'
+          echo '@@ -100,6 +108,90 @@'
+          echo ' 	status = "okay";'
+          echo ' };'
+          echo ' '
+          echo '+/* ========================================== */'
+          echo '+/* 修复2：以太网配置 (GPIO0_C4 复位)          */'
+          echo '+/* ========================================== */'
+          echo '+&gmac1 {'
+          echo '+	status = "okay";'
+          echo '+	tx_delay = <0x4f>;'
+          echo '+	rx_delay = <0x26>;'
+          echo '+	snps,reset-gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_LOW>;'
+          echo '+	snps,reset-active-low;'
+          echo '+	snps,reset-delays-us = <0 20000 100000>;'
+          echo '+};'
+          echo '+'
+          echo '+/* ========================================== */'
+          echo '+/* 修复3：MIPI 屏幕配置 (JD9365DA-H3)         */'
+          echo '+/* ========================================== */'
+          echo '+&dsi0 {'
+          echo '+	status = "okay";'
+          echo '+	#address-cells = <1>;'
+          echo '+	#size-cells = <0>;'
+          echo '+'
+          echo '+	panel@0 {'
+          echo '+		compatible = "qy,qy101003a0-00";'
+          echo '+		reg = <0>;'
+          echo '+		reset-gpios = <&gpio3 RK_PC1 GPIO_ACTIVE_LOW>;'
+          echo '+		power-supply = <&vcc3v3_sys>;'
+          echo '+		backlight = <&panel_backlight>;'
+          echo '+	};'
+          echo '+};'
+          echo '+'
+          echo '+&dsi0_in_vp0 {'
+          echo '+	status = "okay";'
+          echo '+};'
+          echo '+'
+          echo '+/* ========================================== */'
+          echo '+/* 修复4：GT911 触摸配置 (I2C1)               */'
+          echo '+/* ========================================== */'
+          echo '+&i2c1 {'
+          echo '+	status = "okay";'
+          echo '+	clock-frequency = <400000>;'
+          echo '+	'
+          echo '+	touchscreen@5d {'
+          echo '+		compatible = "goodix,gt911";'
+          echo '+		reg = <0x5d>;'
+          echo '+		interrupt-parent = <&gpio1>;'
+          echo '+		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_LOW>;'
+          echo '+		reset-gpios = <&gpio1 RK_PA1 GPIO_ACTIVE_LOW>;'
+          echo '+		irq-gpios = <&gpio1 RK_PA0 GPIO_ACTIVE_HIGH>;'
+          echo '+	};'
+          echo '+};'
+          echo '+'
+          echo '+/* ========================================== */'
+          echo '+/* 修复5：AP6212 WiFi (SDIO)                  */'
+          echo '+/* ========================================== */'
+          echo '+&sdmmc1 {'
+          echo '+	max-frequency = <150000000>;'
+          echo '+	supports-sdio;'
+          echo '+	bus-width = <4>;'
+          echo '+	disable-wp;'
+          echo '+	cap-sd-highspeed;'
+          echo '+	cap-sdio-irq;'
+          echo '+	keep-power-in-suspend;'
+          echo '+	mmc-pwrseq = <&sdio_pwrseq>;'
+          echo '+	non-removable;'
+          echo '+	pinctrl-names = "default";'
+          echo '+	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_cmd &sdmmc1_clk>;'
+          echo '+	status = "okay";'
+          echo '+'
+          echo '+	brcmf: wifi@1 {'
+          echo '+		compatible = "brcm,bcm4329-fmac";'
+          echo '+		reg = <1>;'
+          echo '+		interrupt-parent = <&gpio0>;'
+          echo '+		interrupts = <RK_PB5 IRQ_TYPE_LEVEL_HIGH>;'
+          echo '+		interrupt-names = "host-wake";'
+          echo '+	};'
+          echo '+};'
+          echo '+'
+          echo '+/* ========================================== */'
+          echo '+/* 修复6：AP6212 蓝牙 (UART1)                 */'
+          echo '+/* ========================================== */'
+          echo '+&uart1 {'
+          echo '+	status = "okay";'
+          echo '+	pinctrl-names = "default";'
+          echo '+	pinctrl-0 = <&uart1m0_xfer &uart1m0_ctsn &uart1m0_rtsn>;'
+          echo '+};'
+          ) > $PATCH_DIR/002-rk3566-tspi-fixes.patch
 
           # =======================================================
           # 4. 强制开启内核配置 (多重保险)
