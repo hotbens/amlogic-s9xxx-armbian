@@ -1,5 +1,5 @@
 #==========================================================================
-# Description: Build Armbian arm64 server image (Final Nuclear Fix for TSPi)
+# Description: Build Armbian arm64 server image (Fixed for Kernel 6.12+)
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
@@ -93,19 +93,23 @@ jobs:
           ln -sf /builder/build ${{ github.workspace }}/build
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: 🔧 Inject TSPi Drivers (Nuclear Option)
+      - name: 🔧 Inject TSPi Drivers (Universal Mode)
         working-directory: /builder
         if: ${{ steps.down.outputs.status }} == 'success' && !cancelled()
         run: |
           # =======================================================
-          # 0. 准备工作
+          # 0. 准备工作 (覆盖 current 和 edge 两个分支)
           # =======================================================
-          PATCH_DIR="build/userpatches/kernel/rockchip64-current"
-          mkdir -p $PATCH_DIR
+          # 6.12 内核可能被识别为 edge，也可能被识别为 current，我们两个都放
+          DIRS="build/userpatches/kernel/rockchip64-current build/userpatches/kernel/rockchip64-edge"
+          
+          for PATCH_DIR in $DIRS; do
+            mkdir -p $PATCH_DIR
+            echo "正在向 $PATCH_DIR 注入补丁..."
+          done
+          
           mkdir -p build/userpatches/extensions
           mkdir -p build/userpatches/overlay
-
-          echo "正在注入强制驱动..."
 
           # =======================================================
           # 1. 生成屏幕驱动源码 (panel-jd9365da-h3.c)
@@ -237,15 +241,17 @@ jobs:
           ) > panel-jd9365da-h3.c
 
           # =======================================================
-          # 2. 生成内核源码补丁 (Kconfig + Makefile + .c)
+          # 2. 生成内核源码补丁 (使用稳定锚点)
           # =======================================================
-          # 🔴 关键修改：在 Kconfig 中加入 default y，强制开启！
+          # 关键修改：使用 DRM_PANEL_SIMPLE 作为锚点，这在所有内核版本中都存在
           (
           echo 'diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig'
           echo 'index 1234567..89abcdef 100644'
           echo '--- a/drivers/gpu/drm/panel/Kconfig'
           echo '+++ b/drivers/gpu/drm/panel/Kconfig'
-          echo '@@ -450,3 +450,11 @@ config DRM_PANEL_JDI_LT070ME05000'
+          echo '@@ -1,5 +1,13 @@'
+          echo ' menu "Display Panels"'
+          echo ' '
           echo '+config DRM_PANEL_JD9365DA_H3'
           echo '+	tristate "QY101003A0-00 JD9365DA-H3 panel"'
           echo '+	depends on OF && DRM_MIPI_DSI'
@@ -254,11 +260,15 @@ jobs:
           echo '+	help'
           echo '+	  Support for QY101003A0-00 10.1 inch 800x1280 DSI panel.'
           echo '+'
+          echo ' config DRM_PANEL_SIMPLE'
+          echo ' 	tristate "Simple panel support"'
+          echo ' 	depends on OF && DRM_MIPI_DSI'
           echo ' diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile'
           echo ' index 1234567..89abcdef 100644'
           echo ' --- a/drivers/gpu/drm/panel/Makefile'
           echo ' +++ b/drivers/gpu/drm/panel/Makefile'
-          echo ' @@ -45,3 +45,4 @@ obj-$(CONFIG_DRM_PANEL_JDI_LT070ME05000) += panel-jdi-lt070me05000.o'
+          echo ' @@ -1,3 +1,4 @@'
+          echo ' obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o'
           echo ' +obj-$(CONFIG_DRM_PANEL_JD9365DA_H3) += panel-jd9365da-h3.o'
           echo ' diff --git a/drivers/gpu/drm/panel/panel-jd9365da-h3.c b/drivers/gpu/drm/panel/panel-jd9365da-h3.c'
           echo ' new file mode 100644'
@@ -266,12 +276,12 @@ jobs:
           echo ' --- /dev/null'
           echo ' +++ b/drivers/gpu/drm/panel/panel-jd9365da-h3.c'
           echo ' @@ -0,0 +1,130 @@'
-          ) > $PATCH_DIR/001-add-jd9365da-driver.patch
+          ) > 001-add-jd9365da-driver.patch
            
-          cat panel-jd9365da-h3.c >> $PATCH_DIR/001-add-jd9365da-driver.patch
+          cat panel-jd9365da-h3.c >> 001-add-jd9365da-driver.patch
 
           # =======================================================
-          # 3. 生成设备树补丁 (DTS) - 全功能修复版
+          # 3. 生成设备树补丁 (DTS)
           # =======================================================
           (
           echo 'diff --git a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts'
@@ -385,25 +395,32 @@ jobs:
           echo '+	pinctrl-names = "default";'
           echo '+	pinctrl-0 = <&uart1m0_xfer &uart1m0_ctsn &uart1m0_rtsn>;'
           echo '+};'
-          ) > $PATCH_DIR/002-rk3566-tspi-fixes.patch
+          ) > 002-rk3566-tspi-fixes.patch
 
           # =======================================================
-          # 4. 强制开启内核配置 (多重保险)
+          # 4. 分发补丁到所有可能的目录 (Current & Edge)
           # =======================================================
-          # 🔴 关键：确保 DSI 控制器开启，否则屏幕驱动会被忽略
-          echo "CONFIG_DRM_MIPI_DSI=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_ROCKCHIP_DW_MIPI_DSI=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_DRM_PANEL_JD9365DA_H3=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          
-          # 其他驱动
-          echo "CONFIG_TOUCHSCREEN_GOODIX=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_CFG80211=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BRCMUTIL=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BRCMFMAC=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BRCMFMAC_SDIO=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BT=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BT_HCIUART=y" >> $PATCH_DIR/linux-rockchip64-current.config
-          echo "CONFIG_BT_HCIUART_BCM=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          DIRS="build/userpatches/kernel/rockchip64-current build/userpatches/kernel/rockchip64-edge"
+          for PATCH_DIR in $DIRS; do
+            cp 001-add-jd9365da-driver.patch $PATCH_DIR/
+            cp 002-rk3566-tspi-fixes.patch $PATCH_DIR/
+            
+            # 强制开启配置
+            echo "CONFIG_DRM_MIPI_DSI=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_ROCKCHIP_DW_MIPI_DSI=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_DRM_PANEL_JD9365DA_H3=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_TOUCHSCREEN_GOODIX=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_CFG80211=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BRCMUTIL=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BRCMFMAC=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BRCMFMAC_SDIO=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BT=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BT_HCIUART=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            echo "CONFIG_BT_HCIUART_BCM=y" >> $PATCH_DIR/linux-rockchip64-current.config
+            
+            # 同时也写入 edge 配置文件，以防万一
+            cp $PATCH_DIR/linux-rockchip64-current.config $PATCH_DIR/linux-rockchip64-edge.config
+          done
 
       - name: Compile Armbian [ ${{ inputs.set_release }} ]
         id: compile
