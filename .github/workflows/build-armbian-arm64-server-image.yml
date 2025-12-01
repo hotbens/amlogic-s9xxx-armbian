@@ -1,5 +1,5 @@
 #==========================================================================
-# Description: Build Armbian arm64 server image (Final Fixed for TSPi RK3566)
+# Description: Build Armbian arm64 server image (Syntax Fixed)
 # Copyright (C) 2021 https://github.com/ophub/amlogic-s9xxx-armbian
 #==========================================================================
 
@@ -110,7 +110,7 @@ jobs:
           # =======================================================
           # 1. 生成屏幕驱动源码文件 (panel-jd9365da-h3.c)
           # =======================================================
-          cat << 'END_OF_FILE' > panel-jd9365da-h3.c
+          cat << 'EOF' > panel-jd9365da-h3.c
           // SPDX-License-Identifier: GPL-2.0
           #include <linux/delay.h>
           #include <linux/gpio/consumer.h>
@@ -234,12 +234,12 @@ jobs:
           };
           module_mipi_dsi_driver(jd9365da_driver);
           MODULE_LICENSE("GPL");
-          END_OF_FILE
+          EOF
 
           # =======================================================
           # 2. 生成内核源码补丁 (Kconfig + Makefile + .c)
           # =======================================================
-          cat << 'END_OF_FILE' > $PATCH_DIR/001-add-jd9365da-driver.patch
+          cat << 'EOF' > $PATCH_DIR/001-add-jd9365da-driver.patch
           diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
           index 1234567..89abcdef 100644
           --- a/drivers/gpu/drm/panel/Kconfig
@@ -264,17 +264,190 @@ jobs:
            --- /dev/null
            +++ b/drivers/gpu/drm/panel/panel-jd9365da-h3.c
            @@ -0,0 +1,130 @@
-           END_OF_FILE
+           EOF
            
            cat panel-jd9365da-h3.c >> $PATCH_DIR/001-add-jd9365da-driver.patch
 
           # =======================================================
           # 3. 生成设备树补丁 (DTS) - 全功能修复版
           # =======================================================
-          cat << 'END_OF_FILE' > $PATCH_DIR/002-rk3566-tspi-fixes.patch
+          cat << 'EOF' > $PATCH_DIR/002-rk3566-tspi-fixes.patch
           diff --git a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
           index xxxxx..xxxxx 100644
           --- a/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
           +++ b/arch/arm64/boot/dts/rockchip/rk3566-lckfb-tspi.dts
           @@ -20,6 +20,14 @@
-           		stdout-path = "serial2:1500000n8
+           		stdout-path = "serial2:1500000n8";
+           	};
+           
+          +	/* 修复1：定义虚拟背光 (解决黑屏) */
+          +	panel_backlight: panel-backlight {
+          +		compatible = "regulator-fixed";
+          +		regulator-name = "panel-backlight";
+          +		regulator-min-microvolt = <3300000>;
+          +		regulator-max-microvolt = <3300000>;
+          +		gpio = <&gpio3 RK_PA2 GPIO_ACTIVE_HIGH>;
+          +		enable-active-high;
+          +		regulator-always-on;
+          +		regulator-boot-on;
+          +	};
+          +
+           	vcc12v_dcin: vcc12v-dcin {
+           		compatible = "regulator-fixed";
+           		regulator-name = "vcc12v_dcin";
+          @@ -100,6 +108,90 @@
+           	status = "okay";
+           };
+           
+          +/* ========================================== */
+          +/* 修复2：以太网配置 (GPIO0_C4 复位)          */
+          +/* ========================================== */
+          +&gmac1 {
+          +	status = "okay";
+          +	tx_delay = <0x4f>;
+          +	rx_delay = <0x26>;
+          +	snps,reset-gpio = <&gpio0 RK_PC4 GPIO_ACTIVE_LOW>;
+          +	snps,reset-active-low;
+          +	snps,reset-delays-us = <0 20000 100000>;
+          +};
+          +
+          +/* ========================================== */
+          +/* 修复3：MIPI 屏幕配置 (JD9365DA-H3)         */
+          +/* ========================================== */
+          +&dsi0 {
+          +	status = "okay";
+          +	#address-cells = <1>;
+          +	#size-cells = <0>;
+          +
+          +	panel@0 {
+          +		compatible = "qy,qy101003a0-00";
+          +		reg = <0>;
+          +		reset-gpios = <&gpio3 RK_PC1 GPIO_ACTIVE_LOW>;
+          +		power-supply = <&vcc3v3_sys>;
+          +		backlight = <&panel_backlight>;
+          +	};
+          +};
+          +
+          +&dsi0_in_vp0 {
+          +	status = "okay";
+          +};
+          +
+          +/* ========================================== */
+          +/* 修复4：GT911 触摸配置 (I2C1)               */
+          +/* ========================================== */
+          +&i2c1 {
+          +	status = "okay";
+          +	clock-frequency = <400000>;
+          +	
+          +	touchscreen@5d {
+          +		compatible = "goodix,gt911";
+          +		reg = <0x5d>;
+          +		interrupt-parent = <&gpio1>;
+          +		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_LOW>;
+          +		reset-gpios = <&gpio1 RK_PA1 GPIO_ACTIVE_LOW>;
+          +		irq-gpios = <&gpio1 RK_PA0 GPIO_ACTIVE_HIGH>;
+          +	};
+          +};
+          +
+          +/* ========================================== */
+          +/* 修复5：AP6212 WiFi (SDIO)                  */
+          +/* ========================================== */
+          +&sdmmc1 {
+          +	max-frequency = <150000000>;
+          +	supports-sdio;
+          +	bus-width = <4>;
+          +	disable-wp;
+          +	cap-sd-highspeed;
+          +	cap-sdio-irq;
+          +	keep-power-in-suspend;
+          +	mmc-pwrseq = <&sdio_pwrseq>;
+          +	non-removable;
+          +	pinctrl-names = "default";
+          +	pinctrl-0 = <&sdmmc1_bus4 &sdmmc1_cmd &sdmmc1_clk>;
+          +	status = "okay";
+          +
+          +	brcmf: wifi@1 {
+          +		compatible = "brcm,bcm4329-fmac";
+          +		reg = <1>;
+          +		interrupt-parent = <&gpio0>;
+          +		interrupts = <RK_PB5 IRQ_TYPE_LEVEL_HIGH>;
+          +		interrupt-names = "host-wake";
+          +	};
+          +};
+          +
+          +/* ========================================== */
+          +/* 修复6：AP6212 蓝牙 (UART1)                 */
+          +/* ========================================== */
+          +&uart1 {
+          +	status = "okay";
+          +	pinctrl-names = "default";
+          +	pinctrl-0 = <&uart1m0_xfer &uart1m0_ctsn &uart1m0_rtsn>;
+          +};
+          +EOF
+
+          # =======================================================
+          # 4. 强制开启内核配置 (多重保险)
+          # =======================================================
+          # 屏幕与触摸
+          echo "CONFIG_DRM_PANEL_JD9365DA_H3=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_TOUCHSCREEN_GOODIX=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          
+          # WiFi (AP6212/BCM43438)
+          echo "CONFIG_CFG80211=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_BRCMUTIL=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_BRCMFMAC=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_BRCMFMAC_SDIO=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          
+          # 蓝牙
+          echo "CONFIG_BT=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_BT_HCIUART=y" >> $PATCH_DIR/linux-rockchip64-current.config
+          echo "CONFIG_BT_HCIUART_BCM=y" >> $PATCH_DIR/linux-rockchip64-current.config
+
+      - name: Compile Armbian [ ${{ inputs.set_release }} ]
+        id: compile
+        working-directory: /builder
+        if: ${{ steps.down.outputs.status }} == 'success' && !cancelled()
+        run: |
+          # Compile method and parameter description: https://docs.armbian.com/Developer-Guide_Build-Options
+          cd build/
+          # 🔴 关键修正：BOARD=station-m2 (RK3566)
+          # 🔴 关键修正：CLEAN_LEVEL="make,debs" (强制重编)
+          ./compile.sh RELEASE=${{ inputs.set_release }} \
+                       BOARD=station-m2 \
+                       BRANCH=current \
+                       BUILD_MINIMAL=no \
+                       BUILD_ONLY=default \
+                       HOST=armbian \
+                       BUILD_DESKTOP=no \
+                       EXPERT=yes \
+                       KERNEL_CONFIGURE=no \
+                       CLEAN_LEVEL="make,debs" \
+                       COMPRESS_OUTPUTIMAGE="sha" \
+                       SHARE_LOG=yes
+          echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: Organize files and clear space
+        id: clean
+        if: ${{ steps.compile.outputs.status }} == 'success' && !cancelled()
+        run: |
+          # Organize and keep essential files, delete unnecessary files
+          chmod +x ${ROOTFS_SCRIPT}
+          ${ROOTFS_SCRIPT} -v ${{ inputs.set_release }} -s true -c true -k true -p arm64
+
+          # Clean build directory except output folder
+          cd build/
+          rm -rf $(ls . | grep -v "^output$" | xargs) 2>/dev/null
+
+          # Output cleaning result information
+          df -hT ${PWD}
+          echo "build_tag=Armbian_${{ inputs.set_release }}_arm64_${{ inputs.armbian_edition }}_$(date +"%Y.%m")" >> ${GITHUB_ENV}
+          echo "status=success" >> ${GITHUB_OUTPUT}
+
+      - name: 📤 Upload Image to Artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.clean.outputs.status }} == 'success' && !cancelled()
+        with:
+          name: Armbian-RK3566-TSPi
+          path: build/output/images/*.img*
+          if-no-files-found: warn
+          retention-days: 3
